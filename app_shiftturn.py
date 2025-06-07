@@ -1,63 +1,73 @@
 import streamlit as st
-import pandas as pd
-from calculate_winrate_detailed_v2 import simulate_shift_turn_with_ranking
-from flop_generator import generate_flops_by_type
-from hand_utils import all_starting_hands
+import eval7
+import random
+import csv
 import os
+from collections import defaultdict
 
-st.title("ShiftTurn 勝率変動分析（ターン）")
-
-# 自分のハンドを選択（169通り）
-hand = st.selectbox("自分のハンドを選択", all_starting_hands)
+# 自分のハンド定義（169通り）
+all_starting_hands = [
+    f"{r1}{s1} {r2}{s2}"
+    for r1 in "AKQJT98765432"
+    for r2 in "AKQJT98765432"
+    for s1 in "shdc"
+    for s2 in "shdc"
+    if r1 + s1 != r2 + s2
+]
 
 # フロップタイプ選択
-flop_type = st.selectbox(
-    "フロップタイプを選択",
-    ["High Card", "Paired", "Monotone", "Two Tone", "Straight Possible", "Flush Possible", "Connected"]
-)
+flop_types = ["Rainbow", "Two Tone", "Monotone", "Connected", "Paired", "Dry", "Wet"]
 
-# フロップ枚数を選択（10, 20, 30）
-flop_count = st.selectbox("使用するフロップの数を選択", [10, 20, 30])
+# opponent_hand_combos（静的な25%レンジの代表スート付き208通り）
+from opponent_hand_combos import opponent_hand_combos
 
-# 自分のハンドのカード（仮スート）
-rank1, rank2 = hand[0], hand[1]
-suits = ['h', 'd'] if rank1 != rank2 else ['h', 's']
-hero_cards = [rank1 + suits[0], rank2 + suits[1]]
+# タイトル
+st.title("ShiftTurn 勝率変動計算（特徴量＋ランキング付き）")
 
-# 保存先フォルダ（任意。Renderなどでは注意）
-output_dir = "results"
-os.makedirs(output_dir, exist_ok=True)
+# ハンド選択
+hero_hand_str = st.selectbox("自分のハンドを選択", all_starting_hands)
+
+# フロップタイプ選択
+flop_type = st.selectbox("フロップタイプを選択", flop_types)
+
+# フロップ数選択（10, 20, 30）
+flop_count = st.selectbox("使用するフロップの枚数を選択", [10, 20, 30])
+
+# CSV保存ON/OFF
+save_csv = st.checkbox("CSVで結果を保存", value=True)
 
 # 実行ボタン
-if st.button("ShiftTurn を実行"):
-    with st.spinner("計算中..."):
-        flop_list = generate_flops_by_type(hero_cards, flop_type, count=flop_count)
-        avg_shift, top10, worst10 = simulate_shift_turn_with_ranking(hero_cards, flop_list)
+if st.button("ShiftTurnを計算"):
+    hero_cards = hero_hand_str.split()
 
-    # 結果表示
-    st.success("計算完了！")
-    st.write(f"平均勝率変動：{avg_shift:.2f}%")
+    # フロップ生成
+    from flop_generator import generate_flops_by_type
+    flop_list = generate_flops_by_type(hero_cards, flop_type)
+    random.shuffle(flop_list)
+    flop_list = flop_list[:flop_count]
 
-    # トップ10 表示
-    st.subheader("トップ10（勝率上昇）")
+    # ShiftTurn実行
+    from calculate_winrate_detailed_v2 import simulate_shift_turn_with_ranking
+    avg_shift, top10, worst10 = simulate_shift_turn_with_ranking(hero_cards, flop_list, opponent_hand_combos)
+
+    st.markdown(f"### 平均勝率変動: {avg_shift:.4f}")
+
+    # トップ10表示
+    st.markdown("### Top 10 勝率上昇カード")
     for card, delta, features in top10:
-        st.write(f"{card}: {delta:+.2f}%, 特徴: {features}")
+        st.write(f"{card}: +{delta:.4f}, 特徴: {', '.join(features)}")
 
-    # ワースト10 表示
-    st.subheader("ワースト10（勝率下降）")
+    # ワースト10表示
+    st.markdown("### Worst 10 勝率下降カード")
     for card, delta, features in worst10:
-        st.write(f"{card}: {delta:+.2f}%, 特徴: {features}")
+        st.write(f"{card}: {delta:.4f}, 特徴: {', '.join(features)}")
 
-    # 結果保存
-    df_top = pd.DataFrame(top10, columns=["カード", "変動値", "特徴量"])
-    df_top["カテゴリ"] = "Top10"
-    df_worst = pd.DataFrame(worst10, columns=["カード", "変動値", "特徴量"])
-    df_worst["カテゴリ"] = "Worst10"
-    df_all = pd.concat([df_top, df_worst], ignore_index=True)
-    df_all["ハンド"] = hand
-    df_all["フロップタイプ"] = flop_type
-
-    # CSV保存
-    filename = f"{output_dir}/shiftturn_{hand}_{flop_type}_{flop_count}flops.csv"
-    df_all.to_csv(filename, index=False)
-    st.success(f"結果を保存しました：{filename}")
+    # 保存処理
+    if save_csv:
+        filename = f"shiftturn_{hero_hand_str.replace(' ', '')}_{flop_type}_{flop_count}.csv"
+        with open(filename, mode='w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(["Card", "Delta", "Features"])
+            for card, delta, features in top10 + worst10:
+                writer.writerow([card, delta, ";".join(features)])
+        st.success(f"結果をCSVに保存しました：{filename}")
