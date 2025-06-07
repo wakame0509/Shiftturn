@@ -1,6 +1,24 @@
 import eval7
 from collections import defaultdict
-from extract_features import extract_features_for_turn  # 修正済みインポート
+
+def extract_features_for_turn(hero_cards, flop_cards, turn_card):
+    features = []
+
+    ranks = [c[0] for c in flop_cards + [turn_card]]
+    suits = [c[1] for c in flop_cards + [turn_card]]
+
+    if len(set(ranks)) < len(ranks):
+        features.append("Pair on board")
+    if len(set(suits)) == 1:
+        features.append("Flush possibility")
+    if max([ord(r) for r in ranks]) - min([ord(r) for r in ranks]) <= 4:
+        features.append("Straight possibility")
+    if turn_card[0] in ['A', 'K', 'Q', 'J']:
+        features.append("High card came")
+    elif turn_card[0] in ['2', '3', '4', '5']:
+        features.append("Low card came")
+
+    return features if features else ["None"]
 
 def simulate_winrate(hero_cards, board, opponent_hands):
     hero_hand = [eval7.Card(card) for card in hero_cards]
@@ -59,7 +77,7 @@ def simulate_shift_turn_with_ranking(hero_cards, flop_list, opponent_hands):
     average_shifts = []
     for card, data in turn_shifts.items():
         avg = sum(d for d, _ in data) / len(data)
-        features = data[0][1]  # 最初の特徴量を使用
+        features = data[0][1]
         average_shifts.append((card, avg, features))
 
     average_shifts.sort(key=lambda x: x[1], reverse=True)
