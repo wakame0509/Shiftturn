@@ -1,53 +1,45 @@
 import streamlit as st
 from calculate_winrate_detailed_v2 import simulate_shift_turn_with_ranking
-from opponent_hands_25_range import opponent_hand_combos
-from utils import generate_flops_by_type, parse_hand
 
-st.title("ShiftTurn 勝率変動ランキング")
+st.title("ShiftTurn 勝率変動分析")
 
-# 自分のハンド（169通り）
-ranks = "23456789TJQKA"
-hands = []
-for r in ranks:
-    hands.append(r + r)
+# 169通りのスターティングハンドを直接定義
+all_starting_hands = []
+ranks = "AKQJT98765432"
 for i, r1 in enumerate(ranks):
     for j, r2 in enumerate(ranks):
         if i < j:
-            hands.append(r1 + r2 + "s")
-            hands.append(r1 + r2 + "o")
+            all_starting_hands.append(r1 + r2 + "s")  # スーテッド
+            all_starting_hands.append(r1 + r2 + "o")  # オフスート
+        elif i == j:
+            all_starting_hands.append(r1 + r2)        # ペア
 
-hand_str = st.selectbox("自分のハンドを選択", hands)
+# 自分のハンドを選択
+hand = st.selectbox("自分のハンドを選択", all_starting_hands)
 
-# フロップタイプ選択
+# フロップタイプの選択
 flop_type = st.selectbox("フロップタイプを選択", [
-    "ミドルペア + 同スート2枚",
-    "トップヒット + スート2枚",
-    "ローカードドライ",
-    "2枚連続 + 1枚ブランク",
-    "スート3枚（フラッシュボード）",
-    "ミドルストレートボード",
-    "ハイカード + バラバラ"
+    "High Card + Suited", "No Pair + Dry", "Connected + Suited",
+    "Low + Rainbow", "Paired + Suited", "Ace High", "Broadway"
 ])
 
-# 試行数（ターンは数え上げなので無視）
-num_flops = st.slider("1回の試行ごとのフロップ抽出数", 5, 50, 10)
+# 使用するフロップ数を選択
+num_flops = st.selectbox("使用するフロップ数", [10, 20, 30])
 
-if st.button("計算開始"):
-    try:
-        hero_hand = parse_hand(hand_str)
-        flops = generate_flops_by_type(flop_type)
-        result = simulate_shift_turn_with_ranking(hero_hand, flops, opponent_hand_combos, num_sample=10)
+# 計算ボタン
+if st.button("ShiftTurnを実行"):
+    with st.spinner("計算中..."):
+        result_df = simulate_shift_turn_with_ranking(hand, flop_type, num_flops)
+        st.success("計算完了！")
 
-        st.subheader("平均勝率変動")
-        st.write(f"{result['average_shift']:+.2%}")
+        # 平均勝率変動の表示
+        avg_shift = result_df["shift"].mean()
+        st.write(f"平均勝率変動: {avg_shift:.2f}%")
 
-        st.subheader("トップ10（勝率上昇）")
-        for item in result["top10"]:
-            st.write(f"{item['card']} - {item['winrate']:.2%} ({item['feature']})")
+        # トップ10
+        st.subheader("勝率上昇 トップ10")
+        st.dataframe(result_df.sort_values(by="shift", ascending=False).head(10))
 
-        st.subheader("ワースト10（勝率下降）")
-        for item in result["bottom10"]:
-            st.write(f"{item['card']} - {item['winrate']:.2%} ({item['feature']})")
-
-    except Exception as e:
-        st.error(f"エラーが発生しました: {e}")
+        # ワースト10
+        st.subheader("勝率下降 ワースト10")
+        st.dataframe(result_df.sort_values(by="shift").head(10))
