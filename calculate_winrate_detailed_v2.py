@@ -1,88 +1,66 @@
 import eval7
-from collections import defaultdict
+import random
+from extract_features import extract_features_for_turn
+from hand_utils import convert_hand_to_cards
 
-def extract_features_for_turn(hero_cards, flop_cards, turn_card):
-    features = []
-
-    ranks = [c[0] for c in flop_cards + [turn_card]]
-    suits = [c[1] for c in flop_cards + [turn_card]]
-
-    if len(set(ranks)) < len(ranks):
-        features.append("Pair on board")
-    if len(set(suits)) == 1:
-        features.append("Flush possibility")
-    if max([ord(r) for r in ranks]) - min([ord(r) for r in ranks]) <= 4:
-        features.append("Straight possibility")
-    if turn_card[0] in ['A', 'K', 'Q', 'J']:
-        features.append("High card came")
-    elif turn_card[0] in ['2', '3', '4', '5']:
-        features.append("Low card came")
-
-    return features if features else ["None"]
-
-def simulate_winrate(hero_cards, board, opponent_hands):
-    hero_hand = [eval7.Card(card) for card in hero_cards]
+def calculate_winrate(hero, board, opponent_range, iters=1000):
+    hero_hand = [eval7.Card(card) for card in hero]
     board_cards = [eval7.Card(card) for card in board]
-    hero_score = evaluate_hand(hero_hand + board_cards)
+    deck = [card for card in eval7.Deck() if card not in hero_hand + board_cards]
 
     wins = 0
-    ties = 0
-    total = 0
+    for _ in range(iters):
+        deck_copy = deck[:]
+        random.shuffle(deck_copy)
 
-    for opp in opponent_hands:
-        opp_hand = [eval7.Card(opp[0]), eval7.Card(opp[1])]
-        opp_score = evaluate_hand(opp_hand + board_cards)
-        if hero_score > opp_score:
+        opp_hand = [eval7.Card(card) for card in random.choice(opponent_range)]
+        remaining = [card for card in deck_copy if card not in opp_hand][:5 - len(board_cards)]
+        full_board = board_cards + remaining
+
+        hero_hand_eval = hero_hand + full_board
+        opp_hand_eval = opp_hand + full_board
+
+        hero_value = eval7.evaluate(hero_hand_eval)
+        opp_value = eval7.evaluate(opp_hand_eval)
+
+        if hero_value > opp_value:
             wins += 1
-        elif hero_score == opp_score:
-            ties += 1
-        total += 1
+        elif hero_value == opp_value:
+            wins += 0.5
 
-    return (wins + ties / 2) / total if total > 0 else 0
+    return wins / iters
 
-def evaluate_hand(cards):
-    hand = eval7.Hand(cards)
-    hand_type = hand.evaluate()
-    return hand_type
-
-def simulate_shift_turn_average(hero_cards, flop_list, opponent_hands):
-    turn_winrates = []
-
-    for flop in flop_list:
-        used = set(hero_cards + flop)
-        deck = [str(c) for c in eval7.Deck() if str(c) not in used]
-        for turn_card in deck:
-            board = flop + [turn_card]
-            winrate = simulate_winrate(hero_cards, board, opponent_hands)
-            turn_winrates.append(winrate)
-
-    return sum(turn_winrates) / len(turn_winrates)
-
-def simulate_shift_turn_with_ranking(hero_cards, flop_list, opponent_hands):
-    turn_shifts = defaultdict(list)
-
-    for flop in flop_list:
-        used = set(hero_cards + flop)
-        turn_cards = [str(c) for c in eval7.Deck() if str(c) not in used]
-
-        base_winrate = simulate_winrate(hero_cards, flop, opponent_hands)
-
-        for turn in turn_cards:
-            full_board = flop + [turn]
-            winrate = simulate_winrate(hero_cards, full_board, opponent_hands)
-            delta = winrate - base_winrate
-            features = extract_features_for_turn(hero_cards, flop, turn)
-            turn_shifts[turn].append((delta, features))
-
+def simulate_shift_turn_with_ranking(hero_hand_str, flop_list, opponent_range):
+    hero_cards = convert_hand_to_cards(hero_hand_str)
     average_shifts = []
-    for card, data in turn_shifts.items():
-        avg = sum(d for d, _ in data) / len(data)
-        features = data[0][1]
-        average_shifts.append((card, avg, features))
+    all_ranked = []
 
-    average_shifts.sort(key=lambda x: x[1], reverse=True)
-    top10 = average_shifts[:10]
-    worst10 = average_shifts[-10:]
-    avg_total = sum(x[1] for x in average_shifts) / len(average_shifts)
+    for flop in flop_list:
+        used = set(hero_cards + flop)
+        deck = [card for card in eval7.Deck() if card not in used]
 
+        shift_data = []
+        for turn in deck:
+            board = flop + [turn]
+            winrate = calculate_winrate(hero_cards, board, opponent_range)
+            features = extract_features_for_turn(hero_cards, board)
+            shift_data.append(((flop, turn), winrate, features))
+
+        if shift_data:
+            total_shift = sum(w for _, w, _ in shift_data)
+            avg = total_shift / len(shift_data)
+            average_shifts.append(((flop,), avg))
+
+            sorted_shift = sorted(shift_data, key=lambda x: x[1], reverse=True)
+            top10 = sorted_shift[:10]
+            worst10 = sorted_shift[-10:]
+            all_ranked.append(((flop,), top10, worst10))
+
+    if average_shifts:
+        avg_total = sum(x[1] for x in average_shifts) / len(average_shifts)
+    else:
+        avg_total = 0.0
+        top10, worst10 = [], []
+
+    # 平均勝率 + トップ10・ワースト10（最後のフロップから）
     return avg_total, top10, worst10
