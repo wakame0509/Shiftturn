@@ -1,37 +1,46 @@
+# flop_generator.py
+
 import random
 from itertools import combinations
-from eval7 import Card
 
-def generate_flops_by_type(flop_type, count=10):
-    """
-    指定されたフロップタイプに一致するフロップをランダムに count 個返す。
-    """
-    ranks = "23456789TJQKA"
-    suits = "cdhs"
-    all_cards = [Card(r + s) for r in ranks for s in suits]
-    all_flops = list(combinations(all_cards, 3))
+RANK_ORDER = {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6,
+              '7': 7, '8': 8, '9': 9, 'T': 10,
+              'J': 11, 'Q': 12, 'K': 13, 'A': 14}
 
-    def classify_flop(flop):
-        ranks = sorted([c.rank for c in flop])
-        suits = [c.suit for c in flop]
-        unique_suits = set(suits)
+def classify_flop(flop):
+    suits = [card[1] for card in flop]
+    ranks = [card[0] for card in flop]
+    rank_values = [RANK_ORDER[r] for r in ranks]
 
-        if len(set(ranks)) == 1:
-            return 'Paired'
-        if len(unique_suits) == 1:
-            return 'Monotone'
-        if len(unique_suits) == 3:
-            return 'Rainbow'
-        if 'A' in ranks:
-            return 'Ace High'
-        if set(ranks).issubset({'T', 'J', 'Q', 'K', 'A'}):
-            return 'Broadway'
-        if max([ord(r) for r in ranks]) - min([ord(r) for r in ranks]) <= 4:
-            return 'Connected'
-        if max([ord(r) for r in ranks]) <= ord('7'):
-            return 'Low Dry'
+    is_monotone = suits.count(suits[0]) == 3
+    is_two_tone = len(set(suits)) == 2
+    is_rainbow = len(set(suits)) == 3
+    is_connected = max(rank_values) - min(rank_values) <= 4
+
+    if is_monotone and is_connected:
+        return 'Connected Monotone'
+    elif is_rainbow and is_connected:
+        return 'Connected Rainbow'
+    elif is_two_tone and is_connected:
+        return 'Connected Two-tone'
+    elif is_monotone:
+        return 'Monotone'
+    elif is_rainbow:
+        return 'Rainbow'
+    elif is_two_tone:
+        return 'Two-tone'
+    else:
         return 'Other'
 
+def generate_all_flops(hero_cards):
+    deck = [r + s for r in '23456789TJQKA' for s in 'cdhs']
+    used = set(hero_cards)
+    deck = [card for card in deck if card not in used]
+    return list(combinations(deck, 3))
+
+def generate_flops_by_type(hero_cards, flop_type, count=10):
+    all_flops = generate_all_flops(hero_cards)
     matched = [f for f in all_flops if classify_flop(f) == flop_type]
-    random.shuffle(matched)
-    return matched[:count]
+    if len(matched) <= count:
+        return matched
+    return random.sample(matched, count)
