@@ -1,38 +1,34 @@
 import streamlit as st
-from calculate_winrate_detailed_v2 import simulate_shift_turn_with_ranking
-from flop_generator import generate_flops_by_type
-from opponent_hands_25_range import opponent_hand_combos
-from hand_group_definitions import all_starting_hands
 import pandas as pd
-import datetime
+from calculate_winrate_detailed_v2 import simulate_shift_turn_average
+from opponent_hand_combos import opponent_hand_combos
+from flop_generator import generate_flops_by_type
+from hand_utils import all_starting_hands
 
-st.title("ShiftTurn 勝率変動分析ツール")
+st.title("ShiftTurn 勝率変動分析ツール（数え上げ法）")
 
-# 自分のハンド選択（169通り）
+# 自分のハンド選択
 hand = st.selectbox("自分のハンドを選択", all_starting_hands)
 
 # フロップタイプ選択
-flop_type = st.selectbox(
-    "フロップタイプを選択",
-    ["ミドルペア＋2同スート", "ローカードドライ", "ハイカード＋2同スート", "オーバーカード", "2枚連続", "ミドル＆コネクター", "ハンドと無関係"]
-)
+flop_type = st.selectbox("フロップタイプを選択", [
+    "Low Dry", "Middle Connected", "High Wet", "One Pair", "Monotone", "Overcards", "Random"
+])
 
-# 使用するフロップの数を選択
-num_flops = st.selectbox("使用するフロップの数", [10, 20, 30])
+# フロップの数（10/20/30）
+flop_count = st.selectbox("使用するフロップ数", [10, 20, 30])
 
-# モンテカルロの回数（1フロップに対してターン枚数分）
-mc_trials = st.selectbox("各フロップに対するモンテカルロ回数", [1000, 5000, 10000])
+# 実行ボタン
+if st.button("ShiftTurn 勝率変動を計算"):
+    st.write("フロップ生成中...")
+    flop_list = generate_flops_by_type(flop_type, count=flop_count)
 
-if st.button("勝率変動を計算"):
-    st.write("計算中...")
-    flops = generate_flops_by_type(hand, flop_type, num_flops)
-    result_df = simulate_shift_turn_with_ranking(hand, flops, opponent_hand_combos, mc_trials)
+    st.write("計算中（ターンカードの数え上げ処理）...")
+    df = simulate_shift_turn_average(hand, flop_list, opponent_hand_combos)
 
-    st.subheader("勝率変動ランキング")
-    st.dataframe(result_df)
+    st.write("計算結果（Top10 & Worst10 勝率変動）:")
+    st.dataframe(df)
 
-    # 保存処理
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"shift_turn_{hand}_{flop_type}_{now}.csv".replace(" ", "_")
-    result_df.to_csv(filename, index=False)
-    st.success(f"CSVとして保存されました: {filename}")
+    # CSV保存
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("CSVとしてダウンロード", csv, file_name=f"shiftturn_{hand}_{flop_type}.csv", mime='text/csv')
