@@ -1,62 +1,71 @@
 import eval7
-from collections import defaultdict
-import pandas as pd
-from itertools import combinations
-import random
+from collections import Counter, defaultdict
+from .extract_features import extract_features_for_turn
 
-def get_all_turn_cards(used_cards):
-    full_deck = [eval7.Card(str_rank + suit) for str_rank in "23456789TJQKA" for suit in "shdc"]
-    return [card for card in full_deck if card not in used_cards]
+def simulate_winrate(hero_cards, board, opponent_hands):
+    hero_hand = [eval7.Card(card) for card in hero_cards]
+    board_cards = [eval7.Card(card) for card in board]
+    hero_score = evaluate_hand(hero_hand + board_cards)
 
-def evaluate_vs_opponent(hero_hand, board, opponent_combos):
-    hero = [eval7.Card(c) for c in hero_hand]
-    board_cards = [eval7.Card(c) for c in board]
-    hero_hand_full = hero + board_cards
-    hero_val = eval7.evaluate(hero_hand_full)
+    wins = 0
+    ties = 0
+    total = 0
 
-    wins, ties, total = 0, 0, 0
-    for opp in opponent_combos:
-        opp_cards = [eval7.Card(c) for c in opp]
-        if set(hero) & set(opp_cards):
-            continue
-        opp_hand_full = opp_cards + board_cards
-        opp_val = eval7.evaluate(opp_hand_full)
-        if hero_val > opp_val:
+    for opp in opponent_hands:
+        opp_hand = [eval7.Card(opp[0]), eval7.Card(opp[1])]
+        opp_score = evaluate_hand(opp_hand + board_cards)
+        if hero_score > opp_score:
             wins += 1
-        elif hero_val == opp_val:
+        elif hero_score == opp_score:
             ties += 1
         total += 1
 
-    return (wins + 0.5 * ties) / total if total else 0.0
+    return (wins + ties / 2) / total if total > 0 else 0
 
-def simulate_shift_turn_average(hand, flop_list, opponent_combos):
-    from hand_utils import expand_hand  # ※別ファイルで定義されたハンド展開関数を使う想定
+def evaluate_hand(cards):
+    hand = eval7.Hand(cards)
+    hand_type = hand.evaluate()
+    return hand_type
 
-    hero_hands = expand_hand(hand)  # [[Ah, Kh], [Ad, Kd], ...] など
-    results = []
+def simulate_shift_turn_average(hero_cards, flop_list, opponent_hands):
+    turn_winrates = []
 
-    for flop_str in flop_list:
-        flop = flop_str.split()
-        for hero in hero_hands:
-            base_board = flop.copy()
-            used = set(hero + flop)
-            turn_cards = get_all_turn_cards([eval7.Card(c) for c in used])
-            base_winrates = {}
-            for turn in turn_cards:
-                board = flop + [str(turn)]
-                winrate = evaluate_vs_opponent(hero, board, opponent_combos)
-                base_winrates[str(turn)] = winrate
-            avg_winrate = sum(base_winrates.values()) / len(base_winrates)
-            shift_diffs = {card: (wr - avg_winrate) for card, wr in base_winrates.items()}
-            sorted_shifts = sorted(shift_diffs.items(), key=lambda x: x[1], reverse=True)
-            top10 = sorted_shifts[:10]
-            bottom10 = sorted_shifts[-10:]
-            for card, diff in top10 + bottom10:
-                results.append({
-                    "Flop": " ".join(flop),
-                    "HeroHand": f"{hero[0]} {hero[1]}",
-                    "Card": card,
-                    "Diff": round(diff * 100, 2)
-                })
+    for flop in flop_list:
+        used = set(hero_cards + flop)
+        deck = [str(c) for c in eval7.Deck() if str(c) not in used]
+        for turn_card in deck:
+            board = flop + [turn_card]
+            winrate = simulate_winrate(hero_cards, board, opponent_hands)
+            turn_winrates.append(winrate)
 
-    return pd.DataFrame(results)
+    return sum(turn_winrates) / len(turn_winrates)
+
+def simulate_shift_turn_with_ranking(hero_cards, flop_list, opponent_hands):
+    turn_shifts = defaultdict(list)
+
+    for flop in flop_list:
+        used = set(hero_cards + flop)
+        turn_cards = [str(c) for c in eval7.Deck() if str(c) not in used]
+
+        base_winrate = simulate_winrate(hero_cards, flop, opponent_hands)
+
+        for turn in turn_cards:
+            full_board = flop + [turn]
+            winrate = simulate_winrate(hero_cards, full_board, opponent_hands)
+            delta = winrate - base_winrate
+            features = extract_features_for_turn(hero_cards, flop, turn)
+            turn_shifts[turn].append((delta, features))
+
+    # 平均を取ってランキング作成
+    average_shifts = []
+    for card, data in turn_shifts.items():
+        avg = sum(d for d, _ in data) / len(data)
+        features = data[0][1]  # 最初の特徴量を使用
+        average_shifts.append((card, avg, features))
+
+    average_shifts.sort(key=lambda x: x[1], reverse=True)
+    top10 = average_shifts[:10]
+    worst10 = average_shifts[-10:]
+    avg_total = sum(x[1] for x in average_shifts) / len(average_shifts)
+
+    return avg_total, top10, worst10
