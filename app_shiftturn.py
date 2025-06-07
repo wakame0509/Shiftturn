@@ -1,61 +1,53 @@
 import streamlit as st
-import pandas as pd
-import io
-from calculate_winrate_detailed_v2 import simulate_shift_turn_average
-from flop_generator import generate_flops_by_type
-from hand_range_matrix import all_169_hands
+from calculate_winrate_detailed_v2 import simulate_shift_turn_with_ranking
+from opponent_hands_25_range import opponent_hand_combos
+from utils import generate_flops_by_type, parse_hand
 
-st.title("ShiftTurn 勝率変動シミュレーター（平均処理）")
+st.title("ShiftTurn 勝率変動ランキング")
 
-# 自分のハンド（169通り）選択
-hand = st.selectbox("自分のハンドを選択", all_169_hands)
+# 自分のハンド（169通り）
+ranks = "23456789TJQKA"
+hands = []
+for r in ranks:
+    hands.append(r + r)
+for i, r1 in enumerate(ranks):
+    for j, r2 in enumerate(ranks):
+        if i < j:
+            hands.append(r1 + r2 + "s")
+            hands.append(r1 + r2 + "o")
+
+hand_str = st.selectbox("自分のハンドを選択", hands)
 
 # フロップタイプ選択
 flop_type = st.selectbox("フロップタイプを選択", [
-    "High Card Rainbow",
-    "One Pair",
-    "Flush Draw",
-    "Straight Draw",
-    "Connected Low",
-    "Paired Board",
-    "Dry Lowcard"
+    "ミドルペア + 同スート2枚",
+    "トップヒット + スート2枚",
+    "ローカードドライ",
+    "2枚連続 + 1枚ブランク",
+    "スート3枚（フラッシュボード）",
+    "ミドルストレートボード",
+    "ハイカード + バラバラ"
 ])
 
-# 抽出回数の選択（最大50通り）
-num_samples = st.select_slider(
-    "毎試行のランダム抽出枚数（フロップ）",
-    options=[5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
-    value=10
-)
+# 試行数（ターンは数え上げなので無視）
+num_flops = st.slider("1回の試行ごとのフロップ抽出数", 5, 50, 10)
 
-start = st.button("ShiftTurn 勝率計算スタート")
+if st.button("計算開始"):
+    try:
+        hero_hand = parse_hand(hand_str)
+        flops = generate_flops_by_type(flop_type)
+        result = simulate_shift_turn_with_ranking(hero_hand, flops, opponent_hand_combos, num_sample=10)
 
-if start:
-    with st.spinner("フロップを生成中..."):
-        flop_candidates = generate_flops_by_type(flop_type, hand)
+        st.subheader("平均勝率変動")
+        st.write(f"{result['average_shift']:+.2%}")
 
-    if len(flop_candidates) < num_samples:
-        st.warning(f"候補が {len(flop_candidates)} 通りしかありません。")
-    else:
-        with st.spinner("勝率変動を計算中（数え上げ×平均処理）..."):
-            df_result = simulate_shift_turn_average(
-                hand=hand,
-                flop_list=flop_candidates,
-                num_samples=num_samples
-            )
+        st.subheader("トップ10（勝率上昇）")
+        for item in result["top10"]:
+            st.write(f"{item['card']} - {item['winrate']:.2%} ({item['feature']})")
 
-        st.success("計算完了！")
-        st.dataframe(df_result)
+        st.subheader("ワースト10（勝率下降）")
+        for item in result["bottom10"]:
+            st.write(f"{item['card']} - {item['winrate']:.2%} ({item['feature']})")
 
-        # CSV保存処理
-        csv = io.StringIO()
-        df_result.to_csv(csv, index=False)
-        csv.seek(0)
-        filename = f"{hand}_shiftturn_{flop_type.replace(' ', '_')}.csv"
-
-        st.download_button(
-            label="CSVをダウンロード",
-            data=csv,
-            file_name=filename,
-            mime="text/csv"
-        )
+    except Exception as e:
+        st.error(f"エラーが発生しました: {e}")
