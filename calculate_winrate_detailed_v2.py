@@ -1,56 +1,67 @@
+from typing import List, Dict
+from collections import defaultdict
 import eval7
-from opponent_hands_25_range import opponent_hand_combos
 
-def evaluate_hand(hand, board):
-    full_hand = hand + board
-    full_eval = [eval7.Card(c) for c in full_hand]
-    return eval7.evaluate(full_eval)
+RANKS = '23456789TJQKA'
+SUITS = 'cdhs'
 
-def simulate_winrate_vs_opponent(hero_cards, board):
-    hero = [eval7.Card(c) for c in hero_cards]
-    board_cards = [eval7.Card(c) for c in board]
+def get_deck(exclude: List[str]) -> List[str]:
+    return [r + s for r in RANKS for s in SUITS if r + s not in exclude]
 
-    wins = 0
-    ties = 0
-    total = 0
+def classify_feature(card: str, hand: List[str], board: List[str]) -> str:
+    all_cards = hand + board + [card]
+    ranks = [c[0] for c in all_cards]
+    rank_counts = defaultdict(int)
+    for r in ranks:
+        rank_counts[r] += 1
 
-    for opp_combo in opponent_hand_combos:
-        if any(c in hero_cards + board for c in opp_combo):
-            continue
+    if rank_counts[card[0]] == 3:
+        return "セット完成"
+    elif card[0] not in ranks and RANKS.index(card[0]) > max([RANKS.index(r[0]) for r in hand]):
+        return "オーバーカード"
+    else:
+        return "その他"
 
-        opp = [eval7.Card(c) for c in opp_combo]
-
-        hero_val = eval7.evaluate(hero + board_cards)
-        opp_val = eval7.evaluate(opp + board_cards)
-
-        if hero_val > opp_val:
-            wins += 1
-        elif hero_val == opp_val:
-            ties += 1
-        total += 1
-
-    if total == 0:
-        return 0.0
-    return (wins + ties * 0.5) / total
-
-def simulate_shift_turn(hero_cards, flop_cards):
-    """
-    ターンカードごとに 1枚ずつ全て追加し、数え上げ法で勝率を計算（高速・正確）
-    """
-    all_cards = [r + s for r in '23456789TJQKA' for s in 'cdhs']
-    used = set(hero_cards + flop_cards)
-    turn_candidates = [c for c in all_cards if c not in used]
-
+def simulate_shift_turn_with_ranking(
+    hand: List[str], flop: List[str], opponent_combos: List[List[str]]
+) -> Dict[str, any]:
+    deck = get_deck(hand + flop)
     results = []
 
-    for turn_card in turn_candidates:
-        board = flop_cards + [turn_card]
-        winrate = simulate_winrate_vs_opponent(hero_cards, board)
+    for turn_card in deck:
+        full_board = flop + [turn_card]
+        hero = [eval7.Card(c) for c in hand]
+        board_eval = [eval7.Card(c) for c in full_board]
+
+        hero_wins = 0
+        total = 0
+        for opp in opponent_combos:
+            if turn_card in opp or any(c in full_board for c in opp):
+                continue
+            opp_eval = [eval7.Card(c) for c in opp]
+            hero_score = eval7.evaluate(hero + board_eval)
+            opp_score = eval7.evaluate(opp_eval + board_eval)
+            if hero_score > opp_score:
+                hero_wins += 1
+            elif hero_score == opp_score:
+                hero_wins += 0.5
+            total += 1
+
+        if total == 0:
+            continue
+        winrate = hero_wins / total
         results.append({
-            "flop": flop_cards,
-            "turn": turn_card,
-            "winrate": round(winrate * 100, 2),
-            "shift": 0.0  # プリフロップ勝率と比較はアプリ側で
+            "card": turn_card,
+            "winrate": winrate,
+            "feature": classify_feature(turn_card, hand, flop)
         })
 
-    return results
+    results.sort(key=lambda x: x["winrate"], reverse=True)
+    top_5 = results[:5]
+    bottom_5 = results[-5:]
+
+    return {
+        "top": top_5,
+        "bottom": bottom_5,
+        "average_shift": sum(r["winrate"] for r in results) / len(results) - 0.5,
+    }
