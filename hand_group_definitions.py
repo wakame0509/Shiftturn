@@ -1,16 +1,34 @@
-# hand_group_definitions.py
+def classify_hand(hand_str):
+    """
+    ハンド文字列（例: "AKs", "TT", "QJo"）をグループ名に分類
+    """
+    pairs = ['AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22']
+    high_cards = ['A', 'K', 'Q', 'J', 'T']
+    connectors = ['AK', 'KQ', 'QJ', 'JT', 'T9', '98', '87', '76', '65', '54']
 
-hand_groups = {
-    "High Pair": ["AA", "KK", "QQ", "JJ"],
-    "Middle Pair": ["TT", "99", "88", "77"],
-    "Low Pair": ["66", "55", "44", "33", "22"],
-    "Ace High": ["AKo", "AQo", "AJo", "ATo", "AKs", "AQs", "AJs", "ATs"],
-    "Broadway": ["KQo", "KJo", "QJo", "JTo", "KQs", "KJs", "QJs", "JTs"],
-    "Suited Connectors": ["T9s", "98s", "87s", "76s", "65s", "54s"],
-    "Suited One Gap": ["97s", "86s", "75s", "64s", "53s", "42s"],
-    "Offsuit Connectors": ["T9o", "98o", "87o", "76o", "65o"],
-    "Offsuit One Gap": ["97o", "86o", "75o", "64o", "53o"],
-    "Low Suited": ["43s", "32s"],
-    "Low Offsuit": ["43o", "32o"],
-    "Other": []  # その他はここに追加
-}
+    if hand_str in pairs:
+        rank = hand_str[0]
+        if rank in ['A', 'K', 'Q']:
+            return 'High Pair'
+        elif rank in ['J', 'T', '9']:
+            return 'Middle Pair'
+        else:
+            return 'Low Pair'
+
+    offsuit = hand_str.endswith('o')
+    suited = hand_str.endswith('s')
+    offsuit_or_suited = offsuit or suited
+
+    base = hand_str[:2]
+
+    if base in connectors and suited:
+        return 'Suited Connector'
+    if base in connectors and offsuit:
+        return 'Offsuit Connector'
+    if base[0] in high_cards and base[1] in high_cards:
+        return 'Broadway'
+    if suited:
+        return 'Other Suited'
+    if offsuit:
+        return 'Other Offsuit'
+    return 'Other'
