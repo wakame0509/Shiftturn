@@ -1,75 +1,62 @@
 import eval7
-import random
 from collections import defaultdict
-from feature_extractor import extract_turn_feature
+import pandas as pd
+from itertools import combinations
+import random
 
-def evaluate_hand_vs_range(hero, board, opponent_hand_combos):
-    hero_wins = 0
-    villain_wins = 0
-    ties = 0
+def get_all_turn_cards(used_cards):
+    full_deck = [eval7.Card(str_rank + suit) for str_rank in "23456789TJQKA" for suit in "shdc"]
+    return [card for card in full_deck if card not in used_cards]
 
-    for opp in opponent_hand_combos:
+def evaluate_vs_opponent(hero_hand, board, opponent_combos):
+    hero = [eval7.Card(c) for c in hero_hand]
+    board_cards = [eval7.Card(c) for c in board]
+    hero_hand_full = hero + board_cards
+    hero_val = eval7.evaluate(hero_hand_full)
+
+    wins, ties, total = 0, 0, 0
+    for opp in opponent_combos:
         opp_cards = [eval7.Card(c) for c in opp]
-        all_cards = hero + board + opp_cards
-        if len(set(all_cards)) < len(all_cards):
+        if set(hero) & set(opp_cards):
             continue
-
-        hero_eval = eval7.evaluate(hero, board)
-        opp_eval = eval7.evaluate(opp_cards, board)
-
-        if hero_eval > opp_eval:
-            hero_wins += 1
-        elif hero_eval < opp_eval:
-            villain_wins += 1
-        else:
+        opp_hand_full = opp_cards + board_cards
+        opp_val = eval7.evaluate(opp_hand_full)
+        if hero_val > opp_val:
+            wins += 1
+        elif hero_val == opp_val:
             ties += 1
+        total += 1
 
-    total = hero_wins + villain_wins + ties
-    if total == 0:
-        return 0
-    return (hero_wins + 0.5 * ties) / total
+    return (wins + 0.5 * ties) / total if total else 0.0
 
-def simulate_shift_turn_with_ranking(hero_hand, flop_list, opponent_hand_combos, num_sample=10):
-    all_turns = [card for card in eval7.Deck() if card not in hero_hand]
+def simulate_shift_turn_average(hand, flop_list, opponent_combos):
+    from hand_utils import expand_hand  # ※別ファイルで定義されたハンド展開関数を使う想定
 
-    total_shift = 0
-    turn_stats = defaultdict(list)
+    hero_hands = expand_hand(hand)  # [[Ah, Kh], [Ad, Kd], ...] など
+    results = []
 
-    sampled_flops = random.sample(flop_list, min(num_sample, len(flop_list)))
+    for flop_str in flop_list:
+        flop = flop_str.split()
+        for hero in hero_hands:
+            base_board = flop.copy()
+            used = set(hero + flop)
+            turn_cards = get_all_turn_cards([eval7.Card(c) for c in used])
+            base_winrates = {}
+            for turn in turn_cards:
+                board = flop + [str(turn)]
+                winrate = evaluate_vs_opponent(hero, board, opponent_combos)
+                base_winrates[str(turn)] = winrate
+            avg_winrate = sum(base_winrates.values()) / len(base_winrates)
+            shift_diffs = {card: (wr - avg_winrate) for card, wr in base_winrates.items()}
+            sorted_shifts = sorted(shift_diffs.items(), key=lambda x: x[1], reverse=True)
+            top10 = sorted_shifts[:10]
+            bottom10 = sorted_shifts[-10:]
+            for card, diff in top10 + bottom10:
+                results.append({
+                    "Flop": " ".join(flop),
+                    "HeroHand": f"{hero[0]} {hero[1]}",
+                    "Card": card,
+                    "Diff": round(diff * 100, 2)
+                })
 
-    for flop in sampled_flops:
-        board3 = [eval7.Card(c) for c in flop]
-        used_cards = set(hero_hand + board3)
-
-        for turn_card in all_turns:
-            if turn_card in used_cards:
-                continue
-            board4 = board3 + [turn_card]
-
-            winrate = evaluate_hand_vs_range(hero_hand, board4, opponent_hand_combos)
-            key = turn_card.__str__()
-            turn_stats[key].append(winrate)
-
-    averaged = {k: sum(v)/len(v) for k, v in turn_stats.items() if v}
-    average_shift = sum(averaged.values()) / len(averaged) if averaged else 0
-
-    # ランキング処理
-    top10 = sorted(averaged.items(), key=lambda x: -x[1])[:10]
-    bottom10 = sorted(averaged.items(), key=lambda x: x[1])[:10]
-
-    top10_detailed = []
-    bottom10_detailed = []
-
-    for card, win in top10:
-        feat = extract_turn_feature(hero_hand, card)
-        top10_detailed.append({"card": card, "winrate": win, "feature": feat})
-
-    for card, win in bottom10:
-        feat = extract_turn_feature(hero_hand, card)
-        bottom10_detailed.append({"card": card, "winrate": win, "feature": feat})
-
-    return {
-        "average_shift": average_shift,
-        "top10": top10_detailed,
-        "bottom10": bottom10_detailed
-    }
+    return pd.DataFrame(results)
