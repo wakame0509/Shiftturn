@@ -1,60 +1,37 @@
-import itertools
 import random
+from itertools import combinations
+from eval7 import Card
 
-ranks = '23456789TJQKA'
-suits = 'hdcs'
-
-def generate_flops_by_type(hero_cards, flop_type):
+def generate_flops_by_type(flop_type, count=10):
     """
-    フロップタイプに応じたフロップ候補全通りを生成
+    指定されたフロップタイプに一致するフロップをランダムに count 個返す。
     """
-    all_cards = [r + s for r in ranks for s in suits]
-    used = set(hero_cards)
-    deck = [c for c in all_cards if c not in used]
+    ranks = "23456789TJQKA"
+    suits = "cdhs"
+    all_cards = [Card(r + s) for r in ranks for s in suits]
+    all_flops = list(combinations(all_cards, 3))
 
-    flop_combos = []
+    def classify_flop(flop):
+        ranks = sorted([c.rank for c in flop])
+        suits = [c.suit for c in flop]
+        unique_suits = set(suits)
 
-    for flop in itertools.combinations(deck, 3):
-        if is_flop_type(flop, flop_type):
-            flop_combos.append(list(flop))
+        if len(set(ranks)) == 1:
+            return 'Paired'
+        if len(unique_suits) == 1:
+            return 'Monotone'
+        if len(unique_suits) == 3:
+            return 'Rainbow'
+        if 'A' in ranks:
+            return 'Ace High'
+        if set(ranks).issubset({'T', 'J', 'Q', 'K', 'A'}):
+            return 'Broadway'
+        if max([ord(r) for r in ranks]) - min([ord(r) for r in ranks]) <= 4:
+            return 'Connected'
+        if max([ord(r) for r in ranks]) <= ord('7'):
+            return 'Low Dry'
+        return 'Other'
 
-    return flop_combos
-
-def is_flop_type(flop, flop_type):
-    """
-    各フロップが指定されたタイプに合致するかを判定
-    """
-    ranks_in_flop = [card[0] for card in flop]
-    suits_in_flop = [card[1] for card in flop]
-
-    unique_ranks = set(ranks_in_flop)
-    unique_suits = set(suits_in_flop)
-
-    if flop_type == "High Card Rainbow":
-        return len(unique_ranks) == 3 and len(unique_suits) == 3
-
-    elif flop_type == "Paired Board":
-        return len(unique_ranks) == 2
-
-    elif flop_type == "Suited Two Tone":
-        return any(suits_in_flop.count(suit) == 2 for suit in unique_suits)
-
-    elif flop_type == "Connected Low":
-        values = sorted([rank_to_value(r) for r in ranks_in_flop])
-        return values[2] - values[0] <= 4 and max(values) <= 9
-
-    elif flop_type == "1 Hit + 2 Flush Draw":
-        return len(unique_ranks) == 3 and any(suits_in_flop.count(s) == 2 for s in unique_suits)
-
-    elif flop_type == "No Hit":
-        return True  # 任意の3枚（とりあえず条件なし）
-
-    elif flop_type == "Straight Possible":
-        values = sorted([rank_to_value(r) for r in ranks_in_flop])
-        return values[2] - values[0] == 2 or values[2] - values[0] == 3
-
-    return False
-
-def rank_to_value(r):
-    return {'2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
-            '8': 8, '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}[r]
+    matched = [f for f in all_flops if classify_flop(f) == flop_type]
+    random.shuffle(matched)
+    return matched[:count]
