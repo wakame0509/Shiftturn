@@ -1,60 +1,56 @@
 import eval7
-import random
-from flop_generator import generate_flops_by_type
 from opponent_hands_25_range import opponent_hand_combos
 
-def simulate_winrate_for_turn_card(hero_hand, flop_type, num_trials=1000):
+def evaluate_hand(hand, board):
+    full_hand = hand + board
+    full_eval = [eval7.Card(c) for c in full_hand]
+    return eval7.evaluate(full_eval)
+
+def simulate_winrate_vs_opponent(hero_cards, board):
+    hero = [eval7.Card(c) for c in hero_cards]
+    board_cards = [eval7.Card(c) for c in board]
+
+    wins = 0
+    ties = 0
+    total = 0
+
+    for opp_combo in opponent_hand_combos:
+        if any(c in hero_cards + board for c in opp_combo):
+            continue
+
+        opp = [eval7.Card(c) for c in opp_combo]
+
+        hero_val = eval7.evaluate(hero + board_cards)
+        opp_val = eval7.evaluate(opp + board_cards)
+
+        if hero_val > opp_val:
+            wins += 1
+        elif hero_val == opp_val:
+            ties += 1
+        total += 1
+
+    if total == 0:
+        return 0.0
+    return (wins + ties * 0.5) / total
+
+def simulate_shift_turn(hero_cards, flop_cards):
+    """
+    ターンカードごとに 1枚ずつ全て追加し、数え上げ法で勝率を計算（高速・正確）
+    """
+    all_cards = [r + s for r in '23456789TJQKA' for s in 'cdhs']
+    used = set(hero_cards + flop_cards)
+    turn_candidates = [c for c in all_cards if c not in used]
+
     results = []
-    flop_candidates = generate_flops_by_type(hero_hand, flop_type)
 
-    for _ in range(num_trials):
-        flop = random.choice(flop_candidates)
-        community = flop.copy()
-        deck = eval7.Deck()
-
-        used = set(hero_hand + flop)
-        for card in used:
-            deck.cards.remove(eval7.Card(card))
-
-        turn_results = []
-
-        for turn in deck.cards:
-            board = flop + [str(turn)]
-            hero = [eval7.Card(c) for c in hero_hand]
-            turn_card = str(turn)
-
-            wins = 0
-            total = 0
-            for opp_hand in random.sample(opponent_hand_combos, 50):  # サンプリング数は調整可
-                if any(c in board + hero_hand for c in opp_hand):
-                    continue
-
-                opp = [eval7.Card(c) for c in opp_hand]
-                community_cards = [eval7.Card(c) for c in board]
-
-                hero_hand_val = eval7.evaluate(hero + community_cards)
-                opp_hand_val = eval7.evaluate(opp + community_cards)
-
-                if hero_hand_val > opp_hand_val:
-                    wins += 1
-                elif hero_hand_val == opp_hand_val:
-                    wins += 0.5
-                total += 1
-
-            if total == 0:
-                continue
-
-            winrate = 100 * wins / total
-            preflop_wr = get_preflop_winrate(hero_hand)
-            shift = winrate - preflop_wr
-            turn_results.append({"flop": flop, "turn": turn_card, "winrate": winrate, "shift": shift})
-
-        results.extend(turn_results)
+    for turn_card in turn_candidates:
+        board = flop_cards + [turn_card]
+        winrate = simulate_winrate_vs_opponent(hero_cards, board)
+        results.append({
+            "flop": flop_cards,
+            "turn": turn_card,
+            "winrate": round(winrate * 100, 2),
+            "shift": 0.0  # プリフロップ勝率と比較はアプリ側で
+        })
 
     return results
-
-def get_preflop_winrate(hero_hand):
-    from preflop_winrate_dict import preflop_winrates
-    from utils import format_hand
-    hand_str = format_hand(hero_hand[0], hero_hand[1])
-    return preflop_winrates.get(hand_str, 50.0)
