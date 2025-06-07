@@ -1,6 +1,6 @@
 import eval7
-from collections import Counter, defaultdict
-from .extract_features import extract_features_for_turn
+from collections import defaultdict
+from extract_features import extract_features_for_turn  # 修正済みインポート
 
 def simulate_winrate(hero_cards, board, opponent_hands):
     hero_hand = [eval7.Card(card) for card in hero_cards]
@@ -56,7 +56,6 @@ def simulate_shift_turn_with_ranking(hero_cards, flop_list, opponent_hands):
             features = extract_features_for_turn(hero_cards, flop, turn)
             turn_shifts[turn].append((delta, features))
 
-    # 平均を取ってランキング作成
     average_shifts = []
     for card, data in turn_shifts.items():
         avg = sum(d for d, _ in data) / len(data)
